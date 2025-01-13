@@ -1,0 +1,298 @@
+openapi: 3.0.3
+info:
+  title: purse Service
+  description: API to manage Purse
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+    description: Local server
+
+paths:
+  /api/v1/purses:
+    get:
+      summary: Get all purses
+      operationId: getAllPurses
+      responses:
+        '200':
+          description: List of Purses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PurseResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      summary: Create a new Purse
+      operationId: createPurse
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PurseRequest'
+      responses:
+        '201':
+          description:  Purse success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurseResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/purses/{id}:
+    get:
+      summary: Get a Purse by ID
+      operationId: getPurseById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Id of Purse
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Pursefound
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurseResponse'
+        '404':
+          description: Purse not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      summary: Update a Purse by ID
+      operationId: updatePurse
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Id of Purse
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PurseRequest'
+      responses:
+        '200':
+          description: Purse updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurseResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Purse not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      summary: Delete a purse ID
+      operationId: deletePurse
+      parameters:
+        - name: id
+          in: path
+          description: Id of credit Card
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Credit card deleted
+        '404':
+          description: Credit card not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/purses/{id}/payment:
+    post:
+      summary: purse Payment
+      operationId: postTransactions
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentRequest'
+      responses:
+        '200':
+          description: payment purse
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentResponse'
+        '404':
+          description: Client not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  schemas:
+    PurseEntity:
+      type: object
+      properties:
+        _id:
+          type: string
+        documentType:
+          type: string
+        documentNumber:
+          type: string
+        email:
+          type: string
+        phoneNumber:
+          type: string
+        imeiPhone:
+          type: string
+        numberDebitCard:
+          type: string
+        associateDebitCard:
+          type: boolean
+        balance:
+          type: number
+        debitCardNumber:
+          type: string
+        Accounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Payment'
+    PurseRequest:
+      type: object
+      properties:
+        documentType:
+          type: string
+        documentNumber:
+          type: string
+        email:
+          type: string
+        phoneNumber:
+          type: string
+        imeiPhone:
+          type: string
+        numberDebitCard:
+          type: string
+        associateDebitCard:
+          type: boolean
+        balance:
+          type: number
+        debitCardNumber:
+          type: string
+    PurseResponse:
+      type: object
+      properties:
+        _id:
+          type: string
+        documentType:
+          type: string
+        documentNumber:
+          type: string
+        email:
+          type: string
+        phoneNumber:
+          type: string
+        imeiPhone:
+          type: string
+        numberDebitCard:
+          type: string
+        associateDebitCard:
+          type: boolean
+        balance:
+          type: number
+        debitCardNumber:
+          type: string
+        Accounts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Payment'
+    Payment:
+      type: object
+      properties:
+        amount:
+          type: number
+        date:
+          type: string
+          format: date
+        description:
+          type: string
+    PaymentRequest:
+      type: object
+      properties:
+        amount:
+          type: number
+      required:
+        - amount
+        - clientId
+    PaymentResponse:
+      type: object
+      properties:
+        amount:
+          type: number
+        date:
+          type: string
+          format: date
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string

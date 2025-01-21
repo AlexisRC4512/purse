@@ -1,5 +1,6 @@
 package com.nttdata.yanki.purse.configuration;
 
+import jakarta.annotation.PostConstruct;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -20,14 +21,22 @@ public class RedisConfig {
 
     @Value("${spring.redis.port}")
     private int redisPort;
+    @Value("${spring.P}")
+    private String redisP;
+    private String result;
 
+    @PostConstruct
+    public void init() {
+        this.result = redisP.replace("AlexisRamosCajo", "=");
+    }
     @Primary
     @Bean
     public ReactiveRedisConnectionFactory reactiveRedisConnectionFactory() {
+        System.out.println("valor de redisssss" + redisP);
         RedisStandaloneConfiguration redisConfig = new RedisStandaloneConfiguration();
         redisConfig.setHostName(redisHost);
         redisConfig.setPort(redisPort);
-        redisConfig.setPassword("");
+        redisConfig.setPassword(result);
         return new LettuceConnectionFactory();
     }
 

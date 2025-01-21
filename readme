@@ -1,5 +1,5 @@
-Para crear usuarios con tarjeta de credito usa kafka para obtener el monto de la tarjeta de debito asociada a la cuenta
-la tarjeta de debito debe existir y estar asoicada aun cuenta.
+Para crear monederos asociados a la tarjeta de debito,el microservicio usa Kafka para obtener el monto de la cuenta asociada a 
+la tarjeta de débito y esta tarjeta debe existir y estar asociada a una cuenta.
 Kafka topics y groupId
 topics = "debit-card-topic-create", groupId = "debit-card-group"
 topics = "debit-card-topic-pay-write", groupId = "debit-card-group"

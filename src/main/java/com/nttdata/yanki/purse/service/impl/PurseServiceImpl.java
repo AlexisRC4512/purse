@@ -1,13 +1,16 @@
 package com.nttdata.yanki.purse.service.impl;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.gson.Gson;
 import com.nttdata.yanki.purse.exception.PaymentDataException;
 import com.nttdata.yanki.purse.exception.PurseNotFoundException;
 import com.nttdata.yanki.purse.model.entity.Payment;
 import com.nttdata.yanki.purse.model.entity.PurseEntity;
+import com.nttdata.yanki.purse.model.events.CompleteEvent;
 import com.nttdata.yanki.purse.model.events.PaymentEvent;
 import com.nttdata.yanki.purse.model.events.PaymentStatusEvent;
+import com.nttdata.yanki.purse.model.events.TransactionEvent;
 import com.nttdata.yanki.purse.model.request.PaymentRequest;
 import com.nttdata.yanki.purse.model.request.PurseRequest;
 import com.nttdata.yanki.purse.model.response.PaymentResponse;
@@ -30,10 +33,12 @@ import org.springframework.stereotype.Service;
 import reactor.adapter.rxjava.RxJava3Adapter;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
-
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
+
+import static com.nttdata.yanki.purse.util.constants.ConstantPurse.*;
+
 
 @Log4j2
 @RequiredArgsConstructor
@@ -45,7 +50,7 @@ public class PurseServiceImpl implements PurserService {
 
     @CircuitBreaker(name = "purse", fallbackMethod = "fallbackCreatePurse")
     @Override
-    public Maybe<PurseResponse> insert(PurseRequest purseRequest) {
+    public Maybe<PurseResponse> insert(PurseRequest purseRequest ,String authorizationHeader) {
         return purserRepository.findByDebitCardNumber(purseRequest.getDebitCardNumber())
                 .flatMap(purseEntity -> {
                     if (purseEntity.getDebitCardNumber() != null) {
@@ -56,7 +61,7 @@ public class PurseServiceImpl implements PurserService {
                 .switchIfEmpty(Mono.defer(() -> {
                     PurseEntity newPurseEntity = PurseMapper.toPurseEntity(purseRequest);
                     if (newPurseEntity.isAssociateDebitCard()) {
-                        String message = createKafkaMessage(newPurseEntity);
+                        String message = createKafkaMessage(newPurseEntity,authorizationHeader);
                         kafkaTemplate.send("debit-card-topic-create", message);
                         log.info("Message sent to Kafka: {}", message);
                     }
@@ -66,8 +71,10 @@ public class PurseServiceImpl implements PurserService {
                 .as(RxJava3Adapter::monoToMaybe);
     }
 
-    private String createKafkaMessage(PurseEntity purseEntity) {
-        return "{\"dni\": \"" + purseEntity.getDocumentNumber() + "\", \"cardNumber\": \"" + purseEntity.getDebitCardNumber() + "\"}";
+    private String createKafkaMessage(PurseEntity purseEntity, String authorizationHeader) {
+        return "{\"dni\": \"" + purseEntity.getDocumentNumber() + "\", " +
+                "\"cardNumber\": \"" + purseEntity.getDebitCardNumber() + "\", " +
+                "\"authorization\": \"" + authorizationHeader + "\"}";
     }
 
 
@@ -98,6 +105,7 @@ public class PurseServiceImpl implements PurserService {
         return RxJava3Adapter.monoToMaybe( purserRepository.findById(purseId)
                 .switchIfEmpty(Mono.error(new PurseNotFoundException("No purse found with " + purseId)))
                 .flatMap(existingPurse -> {
+                    catalogCacheService.setCatalog(purseId,existingPurse);
                     PurseEntity updatedPurse = PurseMapper.toPurseEntity(purseRequest);
                     updatedPurse.setId(existingPurse.getId());
                     return purserRepository.save(updatedPurse);
@@ -108,14 +116,16 @@ public class PurseServiceImpl implements PurserService {
     @CircuitBreaker(name = "purse", fallbackMethod = "fallbackDeleteById")
     @Override
     public Completable deletePurse(String purseId) {
-        return RxJava3Adapter.monoToCompletable(purserRepository.deleteById(purseId)
+        return RxJava3Adapter.monoToCompletable(purserRepository.deleteById(purseId).then(
+                catalogCacheService.deleteCatalog(purseId)
+                )
                 .switchIfEmpty(Mono.error(new PurseNotFoundException("No purse found with" + purseId)))
                 .doOnError(e -> log.error("Error delete purse with id: {}", purseId, e))
                 .onErrorMap(e -> new Exception("Error delete purse by id", e)));
     }
     @CircuitBreaker(name = "purse", fallbackMethod = "fallbackPayment")
     @Override
-    public Maybe<PaymentResponse> payByCreditId(String idPurse, String numberPhone, PaymentRequest paymentRequest) {
+    public Maybe<PaymentResponse> payByCreditId(String idPurse, String numberPhone, PaymentRequest paymentRequest,String authorizationHeader) {
         return RxJava3Adapter.monoToMaybe(
                 purserRepository.findByPhoneNumber(numberPhone)
                         .flatMap(purseEntity -> purserRepository.findById(idPurse)
@@ -123,15 +133,15 @@ public class PurseServiceImpl implements PurserService {
                                         .then(Mono.defer(() -> {
                                             List<PurseEntity> purseEntityList = Arrays.asList(purseEntity, purseById);
                                             List<String> listOfDebitCardNumbers = getDebitCardNumbers(purseEntityList);
-                                            return processPayment(purseById, purseEntity, paymentRequest, listOfDebitCardNumbers);
+                                            return processPayment(purseById, purseEntity, paymentRequest, listOfDebitCardNumbers ,authorizationHeader);
                                         }))))
                         .doOnError(e -> log.error("Error processing payment: {}", e.getMessage()))
         );
     }
 
-    @KafkaListener(topics = "purse-balance-topic", groupId = "purse-group")
+    @KafkaListener(id = "myConsumer", topics = "purse-balance-topic", groupId = "springboot-group-1", autoStartup = "true")
     public void listen(String message) {
-        log.info("Message received from Kafka: {}", message);
+        log.info(KAFKA_MESSAGE, message);
         JSONObject jsonObject = new JSONObject(message);
         String cardNumber = jsonObject.getString("cardNumber");
         if (jsonObject.has("balance")) {
@@ -141,17 +151,86 @@ public class PurseServiceImpl implements PurserService {
             handleCompensation(cardNumber);
         }
     }
-    @KafkaListener(topics = "debit-card-topic-pay-read", groupId = "purse-group")
+    @KafkaListener(id = "myConsumer1", topics = "debit-card-topic-pay-read", groupId = "springboot-group-1", autoStartup = "true")
     public void listenMessagePay(String message) {
         ObjectMapper objectMapper = new ObjectMapper();
 
         try {
-            log.info("Message received from Kafka: {}", message);
+            log.info(KAFKA_MESSAGE, message);
             PaymentStatusEvent paymentStatusEvent = objectMapper.readValue(message, PaymentStatusEvent.class);
             processPaymentStatusEvent(paymentStatusEvent);
         } catch (Exception e) {
             log.error("Error processing message: {}", message, e);
         }
+    }
+
+    @KafkaListener(id = "myConsumer2", topics = "bootcoin-pay-yanki", groupId = "springboot-group-1", autoStartup = "true")
+    public void listenYanki(String message) throws JsonProcessingException {
+        ObjectMapper objectMapper = new ObjectMapper();
+        Gson gson = new Gson();
+        TransactionEvent transactionEvent = objectMapper.readValue(message, TransactionEvent.class);
+        log.info(KAFKA_MESSAGE, message);
+        completeTransaction(transactionEvent);
+        CompleteEvent completeEvent = new CompleteEvent();
+        completeEvent.setIdPay(transactionEvent.getIdPay());
+        completeEvent.setIdPurseBuy(transactionEvent.getIdPurseBuy());
+        completeEvent.setIdPurseSeller(transactionEvent.getIdPurseSeller());
+        completeEvent.setDate(transactionEvent.getDate());
+        completeEvent.setAmount(transactionEvent.getAmount());
+        completeEvent.setIdTransaction(transactionEvent.getIdTransaction());
+
+        purserRepository.findByPhoneNumber(transactionEvent.getNumberPhoneSeller())
+                .flatMap(purseEntity -> {
+                    completeEvent.setState("Success");
+                    purseEntity.setBalance(purseEntity.getBalance() + transactionEvent.getAmount());
+                    Payment payment = new Payment();
+                    payment.setState(completeEvent.getState());
+                    payment.setAmount(completeEvent.getAmount());
+                    payment.setDescription("Bootcoin");
+                    payment.setId(completeEvent.getIdPay());
+                    payment.setDate(completeEvent.getDate());
+                    addPayment(purseEntity, payment);
+                    log.info("Updated purse entity: {}", purseEntity);
+                    String completeEventJson = gson.toJson(completeEvent);
+                    log.info("Sending message to Kafka: {}", completeEventJson);
+                    kafkaTemplate.send("bootcoin-pay-yanki-complete", completeEventJson);
+                    return purserRepository.save(purseEntity);
+                })
+                .doOnError(e -> {
+                    log.error("Error saving purse: {}", e.getMessage());
+                    sendErrorEvent(transactionEvent, gson);
+                })
+                .switchIfEmpty(Mono.defer(() -> {
+                    log.error("Error processing message: {}", transactionEvent);
+                    sendErrorEvent(transactionEvent, gson);
+                    return Mono.empty();
+                }))
+                .subscribe();
+    }
+    private void sendErrorEvent(TransactionEvent transactionEvent, Gson gson) {
+        CompleteEvent errorEvent = new CompleteEvent();
+        errorEvent.setIdPay(transactionEvent.getIdPay());
+        errorEvent.setIdPurseBuy(transactionEvent.getIdPurseBuy());
+        errorEvent.setIdPurseSeller(transactionEvent.getIdPurseSeller());
+        errorEvent.setDate(transactionEvent.getDate());
+        errorEvent.setAmount(0.0);
+        errorEvent.setState(ERROR_MESSAGE);
+        errorEvent.setIdTransaction(transactionEvent.getIdTransaction());
+        kafkaTemplate.send("bootcoin-pay-yanki-complete", gson.toJson(errorEvent));
+    }
+    private void completeTransaction(TransactionEvent transactionEvent) {
+        purserRepository.findByPhoneNumber(transactionEvent.getNumberPhoneSeller()).flatMap(purseEntity -> {
+            purseEntity.setBalance(purseEntity.getBalance() + transactionEvent.getAmount());
+            Payment payment = new Payment();
+            payment.setId(UUID.randomUUID().toString());
+            payment.setAmount(transactionEvent.getAmount());
+            payment.setState(COMPLETE);
+            payment.setDate(new Date());
+            payment.setDescription("Bootcoin payment");
+            addPayment(purseEntity,payment);
+
+            return purserRepository.save(purseEntity);
+        });
     }
     private void updatePurseBalance(String cardNumber, double balance) {
         purserRepository.findByDebitCardNumber(cardNumber)
@@ -179,6 +258,7 @@ public class PurseServiceImpl implements PurserService {
                 .subscribe();
     }
 
+
     private Mono<PurseEntity> processDebitCardNumber(String debitCardNumber, PaymentStatusEvent paymentStatusEvent) {
         return purserRepository.findByDebitCardNumber(debitCardNumber)
                 .flatMap(purseEntity -> processPurseEntity(purseEntity, paymentStatusEvent));
@@ -203,10 +283,10 @@ public class PurseServiceImpl implements PurserService {
 
     private Mono<PurseEntity> processPayment(PurseEntity purseEntity, Payment payment, PaymentStatusEvent paymentStatusEvent) {
         if ("Complete".equalsIgnoreCase(paymentStatusEvent.getState())) {
-            payment.setState("Complete");
+            payment.setState(COMPLETE);
             adjustBalanceForCompleteState(purseEntity, payment);
         } else if ("Error".equalsIgnoreCase(paymentStatusEvent.getState())) {
-            payment.setState("Error");
+            payment.setState(ERROR_MESSAGE);
             adjustBalanceForErrorState(purseEntity, payment);
         }
         return Mono.just(purseEntity);
@@ -230,13 +310,14 @@ public class PurseServiceImpl implements PurserService {
         }
     }
 
-    private PaymentEvent createPaymentEvent( PaymentRequest paymentRequest,List<String> listDebitCardNumber,String idPay,List<String>listPayments) {
+    private PaymentEvent createPaymentEvent( PaymentRequest paymentRequest,List<String> listDebitCardNumber,String idPay,List<String>listPayments,String authorizationHeader) {
         PaymentEvent paymentEvent = new PaymentEvent();
         paymentEvent.setIdPay(idPay);
         paymentEvent.setEventType("PAYMENT");
         paymentEvent.setAmount(paymentRequest.getAmount());
         paymentEvent.setListTransactionId(listPayments);
         paymentEvent.setDebitCardNumbers(listDebitCardNumber);
+        paymentEvent.setAuthorizationHeader(authorizationHeader);
         return paymentEvent;
     }
     private void addPayment(PurseEntity purseEntity, Payment payment) {
@@ -266,7 +347,7 @@ public class PurseServiceImpl implements PurserService {
     }
 
     private Mono<PaymentResponse> processPayment(PurseEntity purseById, PurseEntity purseEntity, PaymentRequest paymentRequest
-            , List<String> listOfDebitCardNumbers) {
+            , List<String> listOfDebitCardNumbers ,String authorizationHeader) {
         String idAument = UUID.randomUUID().toString();
         String idDescount = UUID.randomUUID().toString();
         AtomicReference<String> statePayDeposit = new AtomicReference<>("INITIAL");
@@ -277,7 +358,7 @@ public class PurseServiceImpl implements PurserService {
         listPaymentsID.add(idDescount);
         if (!listOfDebitCardNumbers.isEmpty()) {
             Gson gson = new Gson();
-            PaymentEvent paymentEvent = createPaymentEvent(paymentRequest, listOfDebitCardNumbers,idDescount,listPaymentsID);
+            PaymentEvent paymentEvent = createPaymentEvent(paymentRequest, listOfDebitCardNumbers,idDescount,listPaymentsID,authorizationHeader);
             String jsonPaymentEvent = gson.toJson(paymentEvent);
             kafkaTemplate.send("debit-card-topic-pay-write", jsonPaymentEvent);
             log.info("Message sent to Kafka: {}", jsonPaymentEvent);
@@ -287,10 +368,10 @@ public class PurseServiceImpl implements PurserService {
                 .then(purserRepository.findById(purseEntity.getId())
                         .flatMap(purseEntityUpdated -> {
                             if (purseEntityUpdated.isAssociateDebitCard()) {
-                                statePayDeposit.set("COMPLETE");
+                                statePayDeposit.set(COMPLETE);
                             }
                             if (purseById.isAssociateDebitCard()) {
-                                statePayAument.set("COMPLETE");
+                                statePayAument.set(COMPLETE);
                             }
                             Payment paymentDescont = new Payment(idDescount, paymentRequest.getAmount(), new Date(), "you pay: " + paymentRequest.getAmount(), statePayDeposit.get());
                             Payment paymentAument = new Payment(idAument, paymentRequest.getAmount(), new Date(), "you receive: " + paymentRequest.getAmount(), statePayAument.get());
@@ -298,7 +379,11 @@ public class PurseServiceImpl implements PurserService {
                             addPayment(purseEntityUpdated, paymentAument);
                             purseEntityUpdated.setBalance(purseEntityUpdated.getBalance() + paymentRequest.getAmount());
                             return purserRepository.save(purseEntityUpdated)
-                                    .map(savedPurse -> PaymentConverter.toPaymentResponse(paymentDescont)).then(purserRepository.save(purseById)).map(savedPurse -> PaymentConverter.toPaymentResponse(paymentDescont));
+                                    .flatMap(savedPurse -> {
+                                        return catalogCacheService.setCatalog(purseEntityUpdated.getId(), savedPurse)
+                                                .then(catalogCacheService.setCatalog(purseById.getId(), purseById))
+                                                .thenReturn(PaymentConverter.toPaymentResponse(paymentDescont));
+                                    });
                         }));
     }
 

@@ -19,8 +19,9 @@ public class PurseController {
     private final PurserService purserService;
 
     @PostMapping
-    public ResponseEntity<Maybe<PurseResponse>> createPurse(@RequestBody PurseRequest purseRequest) {
-        Maybe<PurseResponse> response = purserService.insert(purseRequest);
+    public ResponseEntity<Maybe<PurseResponse>> createPurse(@RequestBody PurseRequest purseRequest
+            , @RequestHeader("Authorization") String authorizationHeader) {
+        Maybe<PurseResponse> response = purserService.insert(purseRequest,authorizationHeader);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
@@ -50,7 +51,8 @@ public class PurseController {
     @PostMapping("/{idPurse}/payByCreditId")
     public Maybe<PaymentResponse> payByCreditId(@PathVariable String idPurse,
                                                 @RequestParam String numberPhone,
-                                                @RequestBody PaymentRequest paymentRequest) {
-        return purserService.payByCreditId(idPurse, numberPhone, paymentRequest);
+                                                @RequestBody PaymentRequest paymentRequest,
+                                                @RequestHeader("Authorization") String authorizationHeader ) {
+        return purserService.payByCreditId(idPurse, numberPhone, paymentRequest ,authorizationHeader);
     }
 }

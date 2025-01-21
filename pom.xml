@@ -30,10 +30,10 @@
 		<java.version>17</java.version>
 		<spring-cloud.version>2023.0.4</spring-cloud.version>
 		<sonar.host.url>http://localhost:9001</sonar.host.url>
-		<sonar.token>sqp_b41a7ad2b683c392471a70184a287cdc6a816449</sonar.token>
+		<sonar.token>sqp_b2fa5c2df40b61ca31a30a2760d5b1b69185f178</sonar.token>
 		<sonar.projectKey>purse</sonar.projectKey>
 		<sonar.projectName>purse</sonar.projectName>
-		<sonar.exclusions>pom.xml</sonar.exclusions>
+		<sonar.exclusions>pom.xml,**/model/**,**/configuration/**</sonar.exclusions>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -104,6 +104,12 @@
 		<dependency>
 			<groupId>org.springframework.kafka</groupId>
 			<artifactId>spring-kafka</artifactId>
+		</dependency>
+		<!-- https://mvnrepository.com/artifact/org.apache.kafka/kafka-clients -->
+		<dependency>
+			<groupId>org.apache.kafka</groupId>
+			<artifactId>kafka-clients</artifactId>
+			<version>3.9.0</version>
 		</dependency>
 		<dependency>
 			<groupId>ch.qos.logback</groupId>

@@ -16,4 +16,5 @@ public class PaymentEvent {
     private double amount;
     private List<String> listTransactionId;
     private List<String> debitCardNumbers;
+    private String authorizationHeader;
 }

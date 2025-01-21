@@ -9,11 +9,11 @@ import io.reactivex.rxjava3.core.Flowable;
 import io.reactivex.rxjava3.core.Maybe;
 
 public interface PurserService {
-    Maybe<PurseResponse> insert (PurseRequest purseRequest);
+    Maybe<PurseResponse> insert (PurseRequest purseRequest ,String authorizationHeader);
     Flowable<PurseResponse> findAll ();
     Maybe<PurseResponse> findById (String purseId);
     Maybe<PurseResponse> updatePurse (String purseId,PurseRequest purseRequest);
     Completable deletePurse(String purseId);
-    Maybe<PaymentResponse> payByCreditId(String idPurse,String numberPhone , PaymentRequest paymentRequest);
+    Maybe<PaymentResponse> payByCreditId(String idPurse,String numberPhone , PaymentRequest paymentRequest ,String authorizationHeader);
 
 }

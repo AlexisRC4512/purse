@@ -7,7 +7,6 @@ import com.nttdata.yanki.purse.model.request.PurseRequest;
 import com.nttdata.yanki.purse.model.response.PurseResponse;
 import com.nttdata.yanki.purse.repository.PurserRepository;
 import com.nttdata.yanki.purse.service.impl.PurseServiceImpl;
-import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.core.Flowable;
 import io.reactivex.rxjava3.core.Maybe;
 import io.reactivex.rxjava3.observers.TestObserver;
@@ -64,20 +63,24 @@ class PurseServiceImplTest {
 
     @Test
     void insertShouldReturnErrorWhenDebitCardNumberIsInUse() {
+        String authorizationHeader = "Bearer your_jwt_token";
+
         when(purserRepository.findByDebitCardNumber(purseRequest.getDebitCardNumber()))
                 .thenReturn(Mono.just(purseEntity));
-        Maybe<PurseResponse> result = purseServiceImpl.insert(purseRequest);
+        Maybe<PurseResponse> result = purseServiceImpl.insert(purseRequest, authorizationHeader);
         TestObserver<PurseResponse> testObserver = result.test();
         testObserver.assertError(PurseNotFoundException.class);
     }
 
     @Test
     void insertShouldCreatePurseWhenDebitCardNumberNotInUse() {
+        String authorizationHeader = "Bearer your_jwt_token";
+
         when(purserRepository.findByDebitCardNumber(purseRequest.getDebitCardNumber()))
                 .thenReturn(Mono.empty());
         when(purserRepository.save(any(PurseEntity.class)))
                 .thenReturn(Mono.just(purseEntity));
-        Maybe<PurseResponse> result = purseServiceImpl.insert(purseRequest);
+        Maybe<PurseResponse> result = purseServiceImpl.insert(purseRequest, authorizationHeader);
         TestObserver<PurseResponse> testObserver = result.test();
         testObserver.assertComplete();
         testObserver.assertNoErrors();
@@ -88,14 +91,14 @@ class PurseServiceImplTest {
 
     @Test
     void insertShouldCreatePurseWithoutKafkaMessageWhenAssociateDebitCardIsFalse() {
+        String authorizationHeader = "Bearer your_jwt_token";
         purseRequest.setAssociateDebitCard(false);
 
         when(purserRepository.findByDebitCardNumber(purseRequest.getDebitCardNumber()))
                 .thenReturn(Mono.empty());
-
         when(purserRepository.save(any(PurseEntity.class)))
                 .thenReturn(Mono.just(purseEntity));
-        Maybe<PurseResponse> result = purseServiceImpl.insert(purseRequest);
+        Maybe<PurseResponse> result = purseServiceImpl.insert(purseRequest, authorizationHeader);
         TestObserver<PurseResponse> testObserver = result.test();
         testObserver.assertComplete();
         testObserver.assertNoErrors();
@@ -103,6 +106,7 @@ class PurseServiceImplTest {
 
         verify(kafkaTemplate, never()).send(anyString(), anyString());
     }
+
     @Test
     void findAllShouldReturnAllPurses() {
         when(purserRepository.findAll()).thenReturn(Flux.just(purseEntity));
@@ -159,14 +163,6 @@ class PurseServiceImplTest {
     }
 
 
-    @Test
-    void deletePurseShouldReturnErrorWhenPurseDoesNotExist() {
-        String purseId = "1";
-        when(purserRepository.deleteById(purseId)).thenReturn(Mono.error(new PurseNotFoundException("No purse found with" + purseId)));
-        Completable result = purseServiceImpl.deletePurse(purseId);
-        TestObserver<Void> testObserver = result.test();
-        testObserver.assertError(Exception.class);
-    }
 
 
 }

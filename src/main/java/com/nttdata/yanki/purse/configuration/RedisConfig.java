@@ -1,12 +1,12 @@
 package com.nttdata.yanki.purse.configuration;
 
-import jakarta.annotation.PostConstruct;
+import io.lettuce.core.RedisClient;
+import io.lettuce.core.RedisURI;
 import lombok.extern.log4j.Log4j2;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
-import org.springframework.data.redis.connection.ReactiveRedisConnectionFactory;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
 import org.springframework.data.redis.core.ReactiveRedisTemplate;
@@ -16,37 +16,40 @@ import org.springframework.data.redis.serializer.StringRedisSerializer;
 @Log4j2
 @Configuration
 public class RedisConfig {
+
     @Value("${spring.redis.host}")
     private String redisHost;
 
     @Value("${spring.redis.port}")
     private int redisPort;
-    @Value("${spring.P}")
-    private String redisP;
-    private String result;
 
-    @PostConstruct
-    public void init() {
-        this.result = redisP.replace("AlexisRamosCajo", "=");
-    }
+    @Value("${spring.redis.password}")
+    private String redisPassword;
+
     @Primary
     @Bean
-    public ReactiveRedisConnectionFactory reactiveRedisConnectionFactory() {
+    public LettuceConnectionFactory lettuceConnectionFactory() {
+        RedisURI redisUri = RedisURI.Builder.redis(redisHost, redisPort)
+                .withPassword(redisPassword)
+                .build();
+
+        RedisClient redisClient = RedisClient.create(redisUri);
+
         RedisStandaloneConfiguration redisConfig = new RedisStandaloneConfiguration();
         redisConfig.setHostName(redisHost);
         redisConfig.setPort(redisPort);
-        redisConfig.setPassword(result);
-        return new LettuceConnectionFactory();
+        redisConfig.setPassword(redisPassword);
+
+        return new LettuceConnectionFactory(redisConfig);
     }
 
     @Bean
-    public ReactiveRedisTemplate<String, Object> reactiveRedisTemplate(ReactiveRedisConnectionFactory factory) {
+    public ReactiveRedisTemplate<String, Object> reactiveRedisTemplate(LettuceConnectionFactory factory) {
         RedisSerializationContext<String, Object> serializationContext = RedisSerializationContext
                 .<String, Object>newSerializationContext(new StringRedisSerializer())
                 .value(new GenericJackson2JsonRedisSerializer())
                 .build();
 
-        log.debug("Configurando ReactiveRedisTemplate");
         return new ReactiveRedisTemplate<>(factory, serializationContext);
     }
 }

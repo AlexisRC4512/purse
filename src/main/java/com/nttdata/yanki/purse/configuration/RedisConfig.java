@@ -32,7 +32,6 @@ public class RedisConfig {
     @Primary
     @Bean
     public ReactiveRedisConnectionFactory reactiveRedisConnectionFactory() {
-        System.out.println("valor de redisssss" + redisP);
         RedisStandaloneConfiguration redisConfig = new RedisStandaloneConfiguration();
         redisConfig.setHostName(redisHost);
         redisConfig.setPort(redisPort);
